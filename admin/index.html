@@ -1,0 +1,188 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lakshmi Tours and Holidays | Travel Agency</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><link rel="icon" type="image/png" href="../fav.png"><link rel="stylesheet" href="../assets/css/styles.css?v=dark-teal-theme-5"></head>
+<body class="admin-page"><div class="adm"><aside class="side" id="side"></aside><div class="admin-workspace"><header class="admin-topbar"><button class="admin-menu-toggle" id="menu-toggle" type="button" aria-label="Open admin navigation" aria-expanded="false" aria-controls="side"><span></span><span></span><span></span></button><div class="admin-topbar-title"><span>Admin</span><strong id="page-title">Dashboard</strong></div><span class="admin-topbar-note">Management console</span></header><main class="main" id="main"><p>Loading…</p></main></div><button class="admin-nav-backdrop" id="nav-backdrop" type="button" aria-label="Close navigation"></button></div><dialog id="dlg"></dialog>
+<script type="module">
+import { db } from "../assets/js/supabase-client.js";
+const $=(s,r=document)=>r.querySelector(s), esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const tableCell=(k,row,key)=>{const value=row[key];if(k==="gallery_photos"&&key==="image_path")return `<img class="thumb" src="${esc(db.storage.from("gallery-images").getPublicUrl(value).data.publicUrl)}" alt="${esc(row.alt_text)}">`;if(typeof value==="boolean")return `<span class="status-pill ${value?"status-active":"status-inactive"}">${value?"Active":"Inactive"}</span>`;if(key==="status")return `<span class="status-pill status-${esc(value).toLowerCase()}">${esc(value)}</span>`;return esc(value)||"-"};
+const toast=(t,bad)=>{const d=document.createElement("div");d.className="toast"+(bad?" bad":"");d.textContent=t;document.body.append(d);setTimeout(()=>d.remove(),3500)};
+if(!db||!(await db.auth.getSession()).data.session||!(await db.from("admin_profiles").select("id").maybeSingle()).data) location.replace(`login.html?redirect=${encodeURIComponent(location.pathname+location.search+location.hash)}`);
+let activePage="dash",activeTableRefresh=null,dashboardStatsRefresh=null;
+const activeEditorChildRefreshes=new Map();
+const handleAdminChange=(table,payload)=>{const parentPage=({vehicle_images:"vehicles",package_images:"packages",package_itinerary:"packages"})[table];if(activePage===table||activePage===parentPage)activeTableRefresh?.();for(const refresh of activeEditorChildRefreshes.get(table)||[])refresh();if(["vehicles","packages"].includes(table))dashboardStatsRefresh?.();if(table==="site_settings"){loadAdminLogo();if(activePage==="settings")settings()}};
+const startAdminRealtime=()=>{if(!db)return;const liveTables=["banners","vehicles","vehicle_images","packages","package_images","package_itinerary","gallery_photos","site_settings"];const channel=db.channel("admin-content-live");for(const table of liveTables)channel.on("postgres_changes",{event:"*",schema:"public",table},payload=>handleAdminChange(table,payload));channel.subscribe(status=>{if(status==="CHANNEL_ERROR"||status==="TIMED_OUT")console.error("Admin Realtime subscription status:",status)})};
+const slugify=s=>s.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+const uniqueSlug=async(table,base,ignoreId)=>{const {data,error}=await db.from(table).select("id,slug");if(error)throw error;const used=new Set((data||[]).filter(row=>row.id!==ignoreId).map(row=>row.slug));const root=base||"item";let slug=root,suffix=2;while(used.has(slug))slug=`${root}-${suffix++}`;return slug};
+const F=(k,l,t="text",req)=>({k,l,t,req});
+const T={
+ banners:{label:"Hero Banners",bucket:"site-assets",order:"display_order",cols:["title","display_order","is_active"],fields:[F("title","Title"),F("title_highlight","Highlighted words"),F("description","Description","textarea"),F("desktop_image_path","Desktop image","image"),F("mobile_image_path","Mobile image","image"),F("primary_button_text","Primary button text"),F("primary_button_url","Primary button URL"),F("display_order","Order","number"),F("is_active","Active","check")]},
+ vehicles:{label:"Vehicles",bucket:"vehicle-images",order:"display_order",cols:["name","category","max_passengers","is_published"],slug:"name",child:{table:"vehicle_images",fk:"vehicle_id",label:"Gallery",fields:[F("image_path","Photo","image",1)]},fields:[F("name","Name","text",1),F("category","Category"),F("short_description","Short description","textarea"),F("max_passengers","Seating capacity (Seater)","number"),F("luggage_capacity","Luggage"),F("air_conditioning","Air conditioning","select:AC,Non-AC,AC / Non-AC Available"),F("details","Additional details (label and value)","details"),F("cover_image_path","Cover image","image"),F("is_featured","Featured","check"),F("is_published","Published","check"),F("display_order","Order","number")]},
+ packages:{label:"Travel Packages",bucket:"package-images",order:"display_order",cols:["title"],slug:"title",fields:[F("title","Title","text",1),F("cover_image_path","Cover image","image",1)]},
+ gallery_photos:{label:"Our Gallery",bucket:"gallery-images",order:"created_at",desc:1,cols:["image_path","alt_text"],fields:[F("image_path","Photo","image",1),F("alt_text","Description (optional)")]},
+};
+const side=$("#side");
+const navIcons={dash:"<path d='M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z'/>",banners:"<rect x='3' y='4' width='18' height='16' rx='2'/><path d='m4 16 5-5 4 4 3-3 4 4M8 9h.01'/>",vehicles:"<path d='m5 11 1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11M3 11h18v7H3zM6 18v2m12-2v2M6 14h.01M18 14h.01'/>",packages:"<path d='m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5M12 8v5'/>",settings:"<circle cx='12' cy='12' r='3'/><path d='m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.6.9L16 20.5h-2.8l-.3-1.8a8 8 0 0 1-1.8-.7l-1.6.8L7.9 16l1.2-1.4a7 7 0 0 1-.1-1.9l-1.4-1.1L9 9.2l1.7.7a8 8 0 0 1 1.6-.9l.2-1.8h2.8l.3 1.8a8 8 0 0 1 1.8.7l1.6-.8 1.6 2.4-1.2 1.4a7 7 0 0 1 0 2.3Z'/>",logout:"<path d='M10 17l5-5-5-5m5 5H3m9-9h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6'/>"};
+const navItem=(key,label)=>`<button class="side-link" data-m="${key}" type="button"><svg viewBox="0 0 24 24" aria-hidden="true">${navIcons[key]||"<rect x='3' y='3' width='18' height='18' rx='2'/><circle cx='8.5' cy='8.5' r='1.5'/><path d='m21 15-5-5L5 21'/>"}</svg><span>${label}</span></button>`;
+side.innerHTML=`<div class="side-brand"><span class="side-brand-symbol" aria-hidden="true"><svg viewBox="0 0 56 48"><path d="M2 42 19 13l9 14 7-11 19 26H2Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="m17 42 13-20 13 20" fill="none" stroke="#77D98C" stroke-width="4" stroke-linejoin="round"/></svg></span><span>Admin<small>Management</small></span></div><div class="side-section-label">Workspace</div><nav class="side-nav" aria-label="Admin navigation">${navItem("dash","Dashboard")}<div class="side-section-label">Manage</div>${Object.entries(T).map(([k,v])=>navItem(k,v.label)).join("")}<div class="side-section-label">System</div>${navItem("settings","Settings")}</nav><button class="side-link side-logout" id="out" type="button"><svg viewBox="0 0 24 24" aria-hidden="true">${navIcons.logout}</svg><span>Log out</span></button><div class="side-footer"><span class="admin-status-dot"></span> Admin workspace</div>`;
+const defaultAdminLogo='<svg viewBox="0 0 56 48"><path d="M2 42 19 13l9 14 7-11 19 26H2Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="m17 42 13-20 13 20" fill="none" stroke="#77D98C" stroke-width="4" stroke-linejoin="round"/></svg>';
+const updateAdminLogo=path=>{const mark=$(".side-brand-symbol");mark.innerHTML=defaultAdminLogo;if(path){const image=document.createElement("img");image.src=db.storage.from("site-assets").getPublicUrl(path).data.publicUrl;image.alt="";mark.replaceChildren(image)}};
+const loadAdminLogo=async()=>{const {data,error}=await db.from("site_settings").select("setting_value").eq("setting_key","business").maybeSingle();if(error){console.error("Couldn't load the admin logo:",error);return}updateAdminLogo(data?.setting_value?.logo_path)};
+loadAdminLogo();
+const closeMobileNav=()=>{document.body.classList.remove("admin-nav-open");$("#menu-toggle").setAttribute("aria-expanded","false");$("#menu-toggle").setAttribute("aria-label","Open admin navigation")};
+const openMobileNav=()=>{document.body.classList.add("admin-nav-open");$("#menu-toggle").setAttribute("aria-expanded","true");$("#menu-toggle").setAttribute("aria-label","Close admin navigation")};
+side.onclick=e=>{const button=e.target.closest("[data-m]");const m=button?.dataset.m;if(m){side.querySelectorAll("[data-m]").forEach(item=>item.classList.toggle("on",item===button));closeMobileNav();go(m)}};
+$("#menu-toggle").onclick=()=>document.body.classList.contains("admin-nav-open")?closeMobileNav():openMobileNav();
+$("#nav-backdrop").onclick=closeMobileNav;
+window.addEventListener("keydown",e=>{if(e.key==="Escape")closeMobileNav()});
+$("#out").onclick=async()=>{await db.auth.signOut();location.href="login.html"};
+const main=$("#main");
+const go=m=>{activePage=m;activeTableRefresh=null;dashboardStatsRefresh=null;const title=m==="dash"?"Dashboard":m==="settings"?"Settings":T[m].label;$("#page-title").textContent=title;document.title="Lakshmi Tours and Holidays | Travel Agency";return m==="dash"?dash():m==="settings"?settings():table(m)};
+async function dash(){
+ main.innerHTML="<div class='page-heading'><div><p class='eyebrow'>OVERVIEW</p><h1>Dashboard</h1><p class='page-description'>A snapshot of your travel business and recent activity.</p></div></div><div class='cards dashboard-cards' id='c'><div class='dashboard-loading'>Loading your overview...</div></div><section class='dashboard-welcome'><div><span class='welcome-kicker'>Your workspace</span><h2>Everything in one place</h2><p>Manage your fleet, travel packages, hero banners, and website settings from one simple workspace.</p></div><span class='welcome-decoration' aria-hidden='true'>&#10022;</span></section>";
+ const cnt=async(t,f=x=>x)=>{const r=await f(db.from(t).select("id",{count:"exact",head:true}));if(r.error){console.error(`Couldn't refresh ${t} count:`,r.error);return "?"}return r.count};
+ const refresh=async()=>{const v=[["Vehicles",await cnt("vehicles"),"vehicles","01"],["Published packages",await cnt("packages",x=>x.eq("is_published",true)),"packages","02"]];const cards=$("#c");if(!cards||!main.contains(cards))return;cards.innerHTML=v.map(([l,n,k,num])=>`<button class="stat stat-${k}" type="button" data-stat="${k}"><span class="stat-icon" aria-hidden="true">${num}</span><span class="stat-value">${n}</span><span class="stat-label">${l}</span><span class="stat-link">View details <span aria-hidden="true">&rarr;</span></span></button>`).join("");};
+ dashboardStatsRefresh=refresh;
+ await refresh();
+ $("#c").onclick=e=>{const k=e.target.closest("[data-stat]")?.dataset.stat;if(k)go(k)};
+}
+async function table(k){
+ const c=T[k];
+ const statusFilter=c.statuses?`<select id="status-filter"><option value="">All statuses</option>${c.statuses.map(status=>`<option value="${status}">${status}</option>`).join("")}</select>`:"";
+ main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">CONTENT MANAGEMENT</p><h1>${c.label}</h1><p class="page-description">Manage ${c.label.toLowerCase()} and keep your website up to date.</p></div></div><div class="tools"><input id="q" type="search" placeholder="Search" aria-label="Search">${c.noNew?"":`<button class="btn primary sm" id="add">Add new</button>`}${c.csv?`<button class="btn ghost dk sm" id="csv">Export CSV</button>`:""}${statusFilter}</div><div id="t">Loading...</div>`;
+ let rows=[],page=0;const pageSize=15;
+ const load=async()=>{const result=await db.from(k).select("*").order(c.order,{ascending:!c.desc});if(result.error){console.error(`Couldn't load ${c.label}:`,result.error);$("#t").innerHTML=`<p class="state">Couldn't load. <button class="btn ghost dk sm" id="rt">Retry</button></p>`;$("#rt").onclick=load;return}rows=result.data||[];draw()};
+ activeTableRefresh=load;
+ const draw=()=>{const query=$("#q").value.toLowerCase(),status=$("#status-filter")?.value;const filtered=rows.filter(row=>(!status||row.status===status)&&JSON.stringify(row).toLowerCase().includes(query));const pageRows=filtered.slice(page*pageSize,page*pageSize+pageSize);
+  $("#t").innerHTML=filtered.length?`<div class="table-scroll"><table><thead><tr>${c.cols.map(key=>`<th>${key==="max_passengers"?"Seating capacity":key.replace(/_/g," ")}</th>`).join("")}<th>Actions</th></tr></thead><tbody>${pageRows.map(row=>`<tr>${c.cols.map(key=>`<td>${tableCell(k,row,key)}</td>`).join("")}<td><div class="row-actions"><button class="btn primary sm" data-e="${esc(row.id)}">${c.noNew?"Open":"Edit"}</button> ${c.noNew?"":`<button class="btn danger sm" data-d="${esc(row.id)}">Delete</button>`}</div></td></tr>`).join("")}</tbody></table></div><p>${filtered.length} records <button class="btn ghost dk sm" id="pv" ${page?"":"disabled"}>Prev</button> <button class="btn ghost dk sm" id="nx" ${(page+1)*pageSize<filtered.length?"":"disabled"}>Next</button></p>`:`<p class="state">No records yet.${c.noNew?"":" Click Add new to create one."}</p>`;
+  $("#pv")&&($("#pv").onclick=()=>{page--;draw()});$("#nx")&&($("#nx").onclick=()=>{page++;draw()})};
+ $("#q").oninput=()=>{page=0;draw()};$("#status-filter")&&($("#status-filter").onchange=()=>{page=0;draw()});
+ $("#add")&&($("#add").onclick=()=>edit(k,null,load));
+ $("#csv")&&($("#csv").onclick=()=>{const keys=Object.keys(rows[0]||{});const quote=value=>`"${String(value??"").replace(/"/g,'""').replace(/^([=+\-@])/,"'$1")}"`;const blob=new Blob([[keys.join(","),...rows.map(row=>keys.map(key=>quote(row[key])).join(","))].join("\n")],{type:"text/csv"});const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=k+".csv";link.click();URL.revokeObjectURL(link.href)});
+ $("#t").onclick=async event=>{const id=event.target.dataset.e,deleteId=event.target.dataset.d;if(id){const row=rows.find(item=>item.id===id);edit(k,row,load)}if(deleteId&&confirm("Delete this record permanently?")){const row=rows.find(item=>item.id===deleteId);const result=await db.from(k).delete().eq("id",deleteId);if(result.error)return toast("Delete failed: "+result.error.message,1);if(k==="gallery_photos"&&row?.image_path){const removed=await db.storage.from("gallery-images").remove([row.image_path]);if(removed.error){console.error("Gallery photo was deleted from the database, but its file could not be removed:",removed.error);toast("Photo deleted, but its stored image could not be removed: "+removed.error.message,1)}else toast("Photo deleted")}else toast("Deleted");load()}};
+ load();
+}
+async function upload(bucket,file){
+ const type=(file.type||"").toLowerCase();
+ if(!/^image\/(jpeg|png|webp|heic|heif)$/.test(type) && !type.startsWith("image/"))throw new Error("Use a valid image file");
+ if(file.size>10*1024*1024)throw new Error("Image is over 10 MB");
+ const loadImage=(source)=>new Promise((resolve,reject)=>{const url=URL.createObjectURL(source);const image=new Image();image.onload=()=>{URL.revokeObjectURL(url);resolve(image)};image.onerror=()=>{URL.revokeObjectURL(url);reject(new Error("This image could not be processed. Please try another photo."))};image.src=url});
+ let blob=file; let contentType=type||"image/jpeg"; let extension=".jpg";
+ if(!/^image\/(jpeg|png|webp)$/i.test(type)){
+  const image=await loadImage(file);
+  const width=image.naturalWidth||image.width;const height=image.naturalHeight||image.height;const scale=Math.min(1,1800/Math.max(width,height));
+  const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser could not process the selected photo.");ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  const converted=await new Promise((resolve)=>{canvas.toBlob(resolve,"image/jpeg",.88)});
+  if(!converted)throw new Error("This browser could not convert the selected photo. Please choose a JPEG, PNG, or WebP image.");
+  blob=converted;contentType="image/jpeg";extension=".jpg";
+ }
+ if(blob.type&&/^image\/(jpeg|png|webp)$/i.test(blob.type)){contentType=blob.type;extension=blob.type==="image/png"?".png":blob.type==="image/webp"?".webp":".jpg";}
+ const path=`${Date.now()}-${Math.random().toString(36).slice(2,8)}${extension}`;
+ const r=await db.storage.from(bucket).upload(path,blob,{contentType,upsert:false});if(r.error)throw r.error;return path;
+}
+const field=(f,v,bucket)=>{const id="f_"+f.k;let i;
+ if(f.t==="details")return `<fieldset class="detail-editor-field"><legend>${f.l}</legend><div id="${id}" class="detail-editor">${(Array.isArray(v)?v:[]).map(item=>detailEditorRow(item.label,item.value)).join("")}</div><button type="button" class="btn ghost dk sm" data-add-detail="${id}">Add detail</button></fieldset>`;
+ if(f.t==="textarea")i=`<textarea id="${id}" rows="3">${esc(v)}</textarea>`;
+ else if(f.t==="lines")i=`<textarea id="${id}" rows="4">${esc((v||[]).join("\n"))}</textarea>`;
+ else if(f.t==="optional-bool")i=`<select id="${id}"><option value="" ${v==null?"selected":""}>Not specified</option><option value="true" ${v===true?"selected":""}>Yes</option><option value="false" ${v===false?"selected":""}>No</option></select>`;
+ else if(f.t==="check")return `<label class="chk"><input type="checkbox" id="${id}" ${v??true?"checked":""}> ${f.l}</label>`;
+ else if(f.t.startsWith("select:"))i=`<select id="${id}">${f.t.slice(7).split(",").map(o=>`<option ${o===v?"selected":""}>${o}</option>`).join("")}</select>`;
+ else if(f.t==="image")i=`<input type="hidden" id="${id}" value="${esc(v)}"><input type="file" id="${id}_f" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"><div class="admin-image-preview" id="${id}_card" ${v?"":"hidden"}><img class="thumb" id="${id}_p" alt="Preview" ${v?`src="${db.storage.from(bucket).getPublicUrl(v).data.publicUrl}"`:""}><button type="button" class="admin-image-remove" data-remove-image="${esc(f.k)}" aria-label="Remove image">×</button></div>`;
+ else i=`<input id="${id}" type="${f.t}" step="any" value="${esc(v)}"${f.k==="primary_button_url"?' placeholder="vehicles.html or +91 94871 02215"':""}>`;
+ return `<label>${f.l}${f.req?" *":""}${i}</label>`};
+const detailEditorRow=(label="",value="")=>`<div class="detail-editor-row"><label>Label<input type="text" data-detail-label value="${esc(label)}"></label><label>Value<textarea rows="2" data-detail-value>${esc(value)}</textarea></label><button type="button" class="btn danger sm" data-remove-detail>Remove</button></div>`;
+const read=(fs,fixed={})=>{const o={...fixed};for(const f of fs){const el=$("#f_"+f.k);if(!el)continue;
+ o[f.k]=f.t==="check"?el.checked:f.t==="optional-bool"?(el.value===""?null:el.value==="true"):f.t==="lines"?el.value.split("\n").map(s=>s.trim()).filter(Boolean):f.t==="details"?Array.from(el.querySelectorAll(".detail-editor-row"),row=>({label:$("[data-detail-label]",row).value.trim(),value:$("[data-detail-value]",row).value.trim()})).filter(item=>item.label&&item.value):f.t==="number"?(el.value===""?null:Number(el.value)):(el.value.trim()||null)}return o};
+function wireDetails(){const editor=$("#f_details");if(!editor)return;const form=$("#ef");form.addEventListener("click",event=>{const add=event.target.closest("[data-add-detail]");if(add){editor.insertAdjacentHTML("beforeend",detailEditorRow());return}const remove=event.target.closest("[data-remove-detail]");if(remove)remove.closest(".detail-editor-row").remove()})}
+function wireImgs(fs,bucket,uploadedPaths,onUploadingChange=()=>{}){for(const f of fs.filter(f=>f.t==="image"))$("#f_"+f.k+"_f").onchange=async e=>{const file=e.target.files[0];if(!file)return;
+ onUploadingChange(true);try{toast("Uploading…");const p=await upload(bucket,file);uploadedPaths.add(p);$("#f_"+f.k).value=p;const card=$("#f_"+f.k+"_card"),im=$("#f_"+f.k+"_p");im.src=db.storage.from(bucket).getPublicUrl(p).data.publicUrl;card.hidden=false;toast("Image uploaded")}catch(err){toast(err.message,1)}finally{e.target.value="";onUploadingChange(false)}}}
+function edit(k,row,done){
+ const c=T[k],d=$("#dlg"),isNew=!row;
+ const uploadedPaths=new Set();
+ activeEditorChildRefreshes.clear();d.onclose=async()=>{activeEditorChildRefreshes.clear();if(uploadedPaths.size){try{const result=await db.storage.from(c.bucket).remove([...uploadedPaths]);if(result.error){console.error("Couldn't remove unsaved image uploads:",result.error);toast("Couldn't clean up unsaved image uploads: "+result.error.message,1)}}catch(error){console.error("Couldn't remove unsaved image uploads:",error);toast("Couldn't clean up unsaved image uploads: "+error.message,1)}}};
+ const view=c.view?`<dl>${c.view.map(key=>`<dt><b>${key.replace(/_/g," ").replace(/\b\w/g,char=>char.toUpperCase())}</b></dt><dd>${esc(row[key])||"-"}</dd>`).join("")}</dl>${row.phone?`<div class="admin-record-contacts"><a class="btn ghost dk sm" href="tel:${String(row.phone).replace(/[^\d+]/g,"")}">Call customer</a> <a class="btn ghost dk sm" target="_blank" rel="noopener" href="https://wa.me/${String(row.phone).replace(/\D/g,"")}">WhatsApp customer</a></div>`:""}`:"";
+ d.className="";
+ d.innerHTML=`<form method="dialog" id="ef" style="display:grid;gap:10px"><div class="admin-dialog-header"><h2>${isNew?"Add":"Edit"} ${c.label}</h2><button class="admin-dialog-close" type="button" aria-label="Close dialog">×</button></div>${view}${c.fields.map(f=>field(f,k==="vehicles"&&f.k==="air_conditioning"?(row?.air_conditioning||(row?.has_ac===false?"Non-AC":"AC")):row?.[f.k],c.bucket)).join("")}<div class="tools"><button class="btn primary" value="save" id="sv">Save</button><button class="btn ghost dk" value="x" formnovalidate>Cancel</button></div><div id="kids">${isNew&&c.child?`<section class="admin-gallery-setup"><h3>${c.child.label}</h3><p>Save this ${c.label.toLowerCase().replace(/s$/,"")} first. You can add gallery photos here right after it is saved.</p></section>`:""}</div></form>`;
+ d.showModal();$(".admin-dialog-close",d).onclick=()=>d.close();wireImgs(c.fields,c.bucket,uploadedPaths);$("#ef").addEventListener("click",event=>{const button=event.target.closest("[data-remove-image]");if(!button)return;const key=button.dataset.removeImage;$("#f_"+key).value="";$("#f_"+key+"_f").value="";$("#f_"+key+"_card").hidden=true});if(k==="vehicles")wireDetails();if(row&&(c.child||c.child2))kids(c,row,uploadedPaths);
+ $("#sv").onclick=async event=>{
+  event.preventDefault();
+  const saveButton=$("#sv");
+  saveButton.disabled=true;
+  try{
+   const values=read(c.fields);
+   if(k==="vehicles")values.has_ac=values.air_conditioning!=="Non-AC";
+   if(k==="banners"&&isNew)values.internal_name=[values.title,values.title_highlight].filter(Boolean).join(" ")||"Hero Banner";
+   if(k==="gallery_photos"&&!isNew&&!values.image_path){
+    const deleted=await db.from(k).delete().eq("id",row.id);
+    if(deleted.error)return toast("Photo removal failed: "+deleted.error.message,1);
+    if(row.image_path){const removed=await db.storage.from(c.bucket).remove([row.image_path]);if(removed.error){console.error("Photo record was removed, but its image file could not be deleted:",removed.error);toast("Photo removed, but its image file could not be deleted: "+removed.error.message,1)}}
+    toast("Photo removed");d.close();done();return;
+   }
+   for(const f of c.fields)if(f.req&&(values[f.k]==null||values[f.k]===""))return toast(f.l+" is required",1);
+   if(c.slug){
+    const source=String(values[c.slug]||"");
+    values.slug=row&&source===row[c.slug]?row.slug:await uniqueSlug(k,slugify(source),row?.id);
+   }
+   const query=isNew?db.from(k).insert(values).select().single():db.from(k).update(values).eq("id",row.id).select().single();
+   const result=await query;
+   if(result.error){
+    const message=result.error.code==="23505"?"That name is already in use. Change the name and try again.":result.error.message;
+    return toast("Save failed: "+message,1);
+   }
+   const removedPaths=c.fields.filter(f=>f.t==="image"&&row?.[f.k]&&row[f.k]!==values[f.k]).map(f=>row[f.k]);
+   if(removedPaths.length){const removed=await db.storage.from(c.bucket).remove(removedPaths);if(removed.error){console.error("Record saved, but previous image files could not be removed:",removed.error);toast("Saved, but previous image files could not be removed: "+removed.error.message,1)}}
+   for(const f of c.fields.filter(field=>field.t==="image"))if(values[f.k])uploadedPaths.delete(values[f.k]);
+   toast("Saved");
+   if(isNew&&(c.child||c.child2)){row=result.data;$("#ef h2").textContent="Edit "+c.label;kids(c,row,uploadedPaths)}else d.close();
+   done();
+  }catch(error){toast("Save failed: "+error.message,1)}
+  finally{saveButton.disabled=false}
+ };
+}
+function kids(c,row,uploadedPaths){const box=$("#kids");box.innerHTML="";for(const ch of [c.child,c.child2].filter(Boolean)){
+ const w=document.createElement("div");w.innerHTML=`<h3>${ch.label}</h3><div class="list"></div><div class="sub add">${ch.fields.map(f=>field({...f,k:ch.table+f.k},"",c.bucket)).join("")}<button type="button" class="btn primary sm">Add ${ch.label} item</button></div>`;box.append(w);
+ const list=$(".list",w),ld=async()=>{const r=await db.from(ch.table).select("*").eq(ch.fk,row.id).order(ch.fields[0].k==="day_number"?"day_number":"display_order");if(r.error){console.error(`Couldn't load ${ch.label}:`,r.error);list.innerHTML=`<p class="state">Couldn't load ${ch.label.toLowerCase()}. <button class="btn ghost dk sm" type="button" data-retry-child>Retry</button></p>`;return}
+  list.innerHTML=(r.data||[]).map(x=>x.image_path?`<div class="admin-gallery-card"><img class="thumb" alt="" src="${db.storage.from(c.bucket).getPublicUrl(x.image_path).data.publicUrl}"><span>${esc(x.title||x.alt_text||"")}</span><button type="button" class="admin-image-remove" data-x="${esc(x.id)}" data-image-path="${esc(x.image_path)}" aria-label="Remove photo">×</button></div>`:`<div class="sub"><b>Day ${x.day_number}</b> ${esc(x.title||"")} <button type="button" class="btn danger sm" data-x="${esc(x.id)}">Remove</button></div>`).join("")||"<p>None yet.</p>"};
+ const childRefreshes=activeEditorChildRefreshes.get(ch.table)||[];childRefreshes.push(ld);activeEditorChildRefreshes.set(ch.table,childRefreshes);
+ list.onclick=async e=>{if(e.target.closest("[data-retry-child]")){await ld();return}const button=e.target.closest("[data-x]"),id=button?.dataset.x;if(id){const imagePath=button.dataset.imagePath;if(!imagePath&&!confirm("Remove this item?"))return;const r=await db.from(ch.table).delete().eq("id",id);if(r.error){toast(r.error.message,1);return}if(imagePath){const removed=await db.storage.from(c.bucket).remove([imagePath]);if(removed.error){console.error("Gallery item was removed, but its image file could not be deleted:",removed.error);toast("Photo removed, but its stored image could not be removed: "+removed.error.message,1)}}await ld()}};
+ const fs=ch.fields.map(f=>({...f,k:ch.table+f.k})),addButton=$(".add button",w);let isUploading=false;const imageField=fs.find(field=>field.t==="image");const syncAddButton=()=>{addButton.disabled=isUploading||Boolean(imageField&&!$("#f_"+imageField.k)?.value);addButton.textContent=isUploading?"Uploading…":`Add ${ch.label} item`};wireImgs(fs,c.bucket,uploadedPaths,uploading=>{isUploading=uploading;syncAddButton()});syncAddButton();
+ addButton.onclick=async()=>{if(isUploading)return;const o=read(fs);const p={[ch.fk]:row.id};ch.fields.forEach(f=>p[f.k]=o[ch.table+f.k]);
+  if(ch.fields.some(f=>f.req&&(p[f.k]==null||String(p[f.k]).trim()==="")))return toast("Choose and upload a photo before adding it",1);addButton.disabled=true;try{const r=await db.from(ch.table).insert(p);if(r.error){toast("Failed: "+r.error.message,1);return}for(const f of ch.fields.filter(field=>field.t==="image"))if(p[f.k])uploadedPaths.delete(p[f.k]);fs.filter(f=>f.t==="image").forEach(f=>{const path=$("#f_"+f.k);if(path)path.value="";const file=$("#f_"+f.k+"_f");if(file)file.value="";const card=$("#f_"+f.k+"_card");if(card)card.hidden=true});toast("Added");await ld()}catch(error){toast("Couldn't add the gallery item: "+error.message,1)}finally{syncAddButton()}};
+ ld()}}
+async function settings(){
+ const r=await db.from("site_settings").select("*");if(r.error){console.error("Couldn't load settings:",r.error);toast("Couldn't load settings: "+r.error.message,1);return}const m=Object.fromEntries((r.data||[]).map(x=>[x.setting_key,x.setting_value]));const b=m.business||{},s=m.sections||{};
+ let settingsBusiness={...b},logoBusy=false;
+ const bf=["name","tagline","whatsapp","email","address","hours","map_query","instagram_url","facebook_url","youtube_url","twitter_url"];
+ main.innerHTML=`<div class="page-heading"><div><p class="eyebrow">PREFERENCES</p><h1>Settings</h1><p class="page-description">Update your website details, branding and content preferences.</p></div></div><section class="logo-management"><h2>Website logo</h2><p>Manage the logo shown in the header and footer across the website.</p><div class="logo-management-body"><div class="logo-preview" id="logo-preview">${b.logo_path?`<img src="${esc(db.storage.from("site-assets").getPublicUrl(b.logo_path).data.publicUrl)}" alt="Current website logo">`:`<span>No logo uploaded</span>`}</div><div class="logo-controls"><input id="logo-file" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a logo image"><input id="logo-path" type="hidden" value="${esc(b.logo_path||"")}"><button class="btn primary" id="logo-upload-btn" type="button">${b.logo_path?"Edit / Replace logo":"Upload logo"}</button><button class="btn danger" id="logo-delete-btn" type="button" ${b.logo_path?"":"hidden"}>Delete logo</button><small>Use a JPEG, PNG, or WebP image up to 10 MB.</small></div></div></section><form id="sf" class="formbox">${bf.map(k=>`<label>${({name:"Business name",tagline:"Tagline",whatsapp:"WhatsApp enquiry number",instagram_url:"Instagram URL",facebook_url:"Facebook URL",youtube_url:"YouTube URL",twitter_url:"Twitter / X URL"})[k]||k.replace("_"," ")}<input name="${k}" value="${esc(b[k])}"${k==="whatsapp"?' type="tel" placeholder="+91 94871 02215"':k.endsWith("_url")?' type="url" placeholder="https://..."':""}></label>`).join("")}<div class="contact-numbers-field"><div class="contact-numbers-heading"><strong>Call contact numbers</strong><button class="btn ghost sm" id="add-phone-number" type="button">+ Add Phone Number</button></div><p>Add one or more numbers customers can call.</p><div id="phone-number-list" class="contact-number-list"></div></div><label class="chk"><input type="checkbox" name="whatsapp_enquiry_enabled" ${m.whatsapp_enquiry_enabled===false||m.whatsapp_enquiry_enabled==="false"?"":"checked"}> WhatsApp Enquiry On/Off</label><p>Show sections:</p>${["hero","vehicles","packages","contact"].map(k=>`<label class="chk"><input type="checkbox" name="s_${k}" ${s[k]===false?"":"checked"}> ${k}</label>`).join("")}
+ <label>Privacy policy (plain text)<textarea name="privacy" rows="6">${esc(m.privacy?.text)}</textarea></label><label>Terms (plain text)<textarea name="terms" rows="6">${esc(m.terms?.text)}</textarea></label><button class="btn primary">Save Contact Settings</button></form>`;
+ const phoneList=$("#phone-number-list"),phoneValues=Array.isArray(b.phone_numbers)?b.phone_numbers:String(b.phone||"").split(/[,;\n]+/).map(number=>number.trim()).filter(Boolean);
+ const renderPhoneNumbers=()=>{phoneList.innerHTML=phoneValues.map((number,index)=>`<div class="contact-number-row"><input type="tel" name="call_phone_number" value="${esc(number)}" placeholder="+91 94871 02215" aria-label="Call contact number ${index+1}"><button class="btn danger sm" type="button" data-remove-phone="${index}" aria-label="Remove phone number ${index+1}">Remove</button></div>`).join("")};
+ renderPhoneNumbers();
+ $("#add-phone-number").onclick=()=>{phoneValues.push("");renderPhoneNumbers();phoneList.lastElementChild?.querySelector("input")?.focus()};
+ phoneList.onclick=event=>{const remove=event.target.closest("[data-remove-phone]");if(!remove)return;phoneValues.splice(Number(remove.dataset.removePhone),1);renderPhoneNumbers()};
+ const wireEnquiryToggle=(name,key,label)=>{const toggle=$("#sf [name="+name+"]");toggle.onchange=async()=>{const enabled=toggle.checked;toggle.disabled=true;try{const result=await db.from("site_settings").upsert({setting_key:key,setting_value:enabled},{onConflict:"setting_key"});if(result.error){toggle.checked=!enabled;toast("Couldn't update "+label+" setting: "+result.error.message,1);return}try{localStorage.setItem(key,String(enabled))}catch(error){console.warn("Couldn't notify other open tabs about the "+label+" setting:",error)}toast(label+(enabled?" enabled":" disabled"))}catch(error){toggle.checked=!enabled;toast("Couldn't update "+label+" setting: "+error.message,1)}finally{toggle.disabled=false}}};
+ wireEnquiryToggle("whatsapp_enquiry_enabled","whatsapp_enquiry_enabled","WhatsApp enquiry");
+ $("#logo-upload-btn").onclick=()=>$("#logo-file").click();
+ $("#logo-file").onchange=async e=>{const file=e.target.files[0];if(!file)return;const button=$("#logo-upload-btn"),oldPath=$("#logo-path").value;logoBusy=true;button.disabled=true;
+  try{toast("Uploading logo…");const path=await upload("site-assets",file),nextBusiness={...settingsBusiness,logo_path:path};const saved=await db.from("site_settings").upsert({setting_key:"business",setting_value:nextBusiness},{onConflict:"setting_key"});
+   if(saved.error){const cleanup=await db.storage.from("site-assets").remove([path]);toast(`Logo save failed: ${saved.error.message}${cleanup.error?`; uploaded file cleanup failed: ${cleanup.error.message}`:""}`,1);return}
+   settingsBusiness=nextBusiness;updateAdminLogo(path);$("#logo-path").value=path;$("#logo-preview").innerHTML=`<img src="${esc(db.storage.from("site-assets").getPublicUrl(path).data.publicUrl)}" alt="Current website logo">`;button.textContent="Edit / Replace logo";$("#logo-delete-btn").hidden=false;
+   if(oldPath){const removed=await db.storage.from("site-assets").remove([oldPath]);if(removed.error){toast(`Logo updated, but the previous image could not be deleted: ${removed.error.message}`,1);return}}
+   toast("Logo updated. Refresh the website pages to see it.");
+  }catch(err){toast("Logo upload failed: "+err.message,1)}finally{logoBusy=false;button.disabled=false;e.target.value=""}};
+ $("#logo-delete-btn").onclick=async()=>{const path=$("#logo-path").value;if(!path||!confirm("Delete the website logo from the header and footer?"))return;
+  const button=$("#logo-delete-btn");logoBusy=true;button.disabled=true;
+  try{const nextBusiness={...settingsBusiness,logo_path:""};const saved=await db.from("site_settings").upsert({setting_key:"business",setting_value:nextBusiness},{onConflict:"setting_key"});
+   if(saved.error){toast("Logo delete failed: "+saved.error.message,1);return}
+   settingsBusiness=nextBusiness;updateAdminLogo("");$("#logo-path").value="";$("#logo-preview").innerHTML="<span>No logo uploaded</span>";$("#logo-upload-btn").textContent="Upload logo";button.hidden=true;
+   const removed=await db.storage.from("site-assets").remove([path]);if(removed.error){toast(`Logo removed from the website, but its image file could not be deleted: ${removed.error.message}`,1);return}
+   toast("Logo deleted. Refresh the website pages to see the change.");
+  }catch(err){toast("Logo delete failed: "+err.message,1)}finally{logoBusy=false;button.disabled=false}};
+ $("#sf").onsubmit=async e=>{e.preventDefault();if(logoBusy)return toast("Wait for the logo update to finish.",1);const f=e.target,v={...settingsBusiness,logo_path:$("#logo-path").value};bf.forEach(k=>v[k]=f[k].value.trim());if(v.whatsapp.replace(/\D/g,"").length<8)return toast("Enter a valid WhatsApp enquiry number with country code.",1);v.phone_numbers=[...f.querySelectorAll('[name="call_phone_number"]')].map(input=>input.value.trim()).filter(Boolean);if(!v.phone_numbers.length)return toast("Add at least one call contact number.",1);v.phone=v.phone_numbers[0];
+  const sec={};["hero","vehicles","packages","contact"].forEach(k=>sec[k]=f["s_"+k].checked);
+  const rows=[{setting_key:"business",setting_value:v},{setting_key:"sections",setting_value:sec},{setting_key:"whatsapp_enquiry_enabled",setting_value:f.whatsapp_enquiry_enabled.checked},{setting_key:"privacy",setting_value:{text:f.privacy.value}},{setting_key:"terms",setting_value:{text:f.terms.value}}];
+  const x=await db.from("site_settings").upsert(rows,{onConflict:"setting_key"});if(x.error)toast("Save failed: "+x.error.message,1);else{settingsBusiness=v;toast("Contact settings saved")}};
+}
+const initialPage="dash";
+side.querySelector(`[data-m="${initialPage}"]`).classList.add("on");
+startAdminRealtime();go(initialPage);
+</script></body></html>

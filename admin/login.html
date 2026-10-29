@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lakshmi Tours and Holidays | Travel Agency</title>
+  <link rel="icon" type="image/png" href="../fav.png">
+  <link rel="stylesheet" href="../assets/css/styles.css?v=dark-teal-theme-5">
+</head>
+<body class="admin-login-page">
+  <main class="admin-login-shell">
+    <form id="login-form" class="admin-login-card">
+      <a class="login-brand" href="../index.html"><span class="login-brand-symbol" aria-hidden="true"><svg viewBox="0 0 56 48"><path d="M2 42 19 13l9 14 7-11 19 26H2Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/><path d="m17 42 13-20 13 20" fill="none" stroke="#77D98C" stroke-width="4" stroke-linejoin="round"/></svg></span><span>Admin<small>Management console</small></span></a>
+      <div class="login-heading"><p class="eyebrow">WELCOME BACK</p><h1>Sign in to your workspace</h1><p>Manage your vehicles, packages and website content.</p></div>
+      <label for="email">Email<input id="email" type="email" required autocomplete="username" placeholder="you@example.com"></label>
+      <label for="password">Password<input id="password" type="password" required autocomplete="current-password" placeholder="Enter your password"></label>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p id="message" class="form-msg" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+  <script type="module">
+    import { db, configured } from "../assets/js/supabase-client.js";
+
+    const form = document.querySelector("#login-form");
+    const email = document.querySelector("#email");
+    const password = document.querySelector("#password");
+    const message = document.querySelector("#message");
+    const submitButton = form.querySelector('button[type="submit"]');
+    const logo = document.querySelector(".login-brand-symbol");
+    const showMessage = (text, kind = "bad") => {
+      message.textContent = text;
+      message.className = `form-msg ${kind}`;
+    };
+    const adminRedirect = () => {
+      const requested = new URLSearchParams(location.search).get("redirect");
+      if (!requested) return "index.html";
+      try {
+        const target = new URL(requested, location.origin);
+        if (target.origin === location.origin && target.pathname === "/admin/index.html") {
+          return `${target.pathname}${target.search}${target.hash}`;
+        }
+      } catch (error) {
+        console.error("Invalid admin redirect URL:", error);
+      }
+      return "index.html";
+    };
+
+    if (db) {
+      const { data, error } = await db
+        .from("site_settings")
+        .select("setting_value")
+        .eq("setting_key", "business")
+        .maybeSingle();
+      if (error) {
+        console.error(error);
+      } else if (data?.setting_value?.logo_path) {
+        const image = document.createElement("img");
+        image.className = "site-logo-image";
+        image.src = db.storage.from("site-assets").getPublicUrl(data.setting_value.logo_path).data.publicUrl;
+        image.alt = `${data.setting_value.name || "Business"} logo`;
+        logo.replaceChildren(image);
+        logo.setAttribute("aria-hidden", "false");
+      }
+    }
+
+    if (!configured || !db) {
+      showMessage("Set your Supabase URL and key in assets/js/config.js first.");
+      submitButton.disabled = true;
+    } else {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submitButton.disabled = true;
+        showMessage("Signing in…", "");
+
+        try {
+          const { error: signInError } = await db.auth.signInWithPassword({
+            email: email.value.trim(),
+            password: password.value
+          });
+          if (signInError) {
+            showMessage("Sign-in failed. Check your email and password.");
+            return;
+          }
+
+          const { data: profile, error: profileError } = await db
+            .from("admin_profiles")
+            .select("id")
+            .maybeSingle();
+          if (profileError) {
+            console.error(profileError);
+            await db.auth.signOut();
+            showMessage("Couldn't verify administrator access. Please try again.");
+            return;
+          }
+          if (!profile) {
+            await db.auth.signOut();
+            showMessage("This account is not an administrator.");
+            return;
+          }
+
+          location.replace(adminRedirect());
+        } catch (error) {
+          console.error(error);
+          showMessage("Couldn't sign in right now. Please try again.");
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+
+    }
+  </script>
+</body>
+</html>

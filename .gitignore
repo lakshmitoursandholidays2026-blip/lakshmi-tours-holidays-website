@@ -1,0 +1,7 @@
+supabase/.temp/
+admin/_tmp_check.js
+.vscode/
+*.code-workspace
+.env
+.env.*
+!.env.example
